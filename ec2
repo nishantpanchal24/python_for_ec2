@@ -1,0 +1,68 @@
+import boto3
+import paramiko
+from botocore.exceptions import NoCredentialsError
+
+def create_ec2_instance(key_pair_name, security_group_id, instance_type='t2.micro', ami_id='ami-XXXXXXXXXXXXXXXXX'):
+    ec2 = boto3.resource('ec2')
+
+    try:
+        # Launch EC2 instance
+        instance = ec2.create_instances(
+            ImageId=ami_id,
+            InstanceType=instance_type,
+            KeyName=key_pair_name,
+            MinCount=1,
+            MaxCount=1,
+            SecurityGroupIds=[security_group_id]
+        )[0]
+
+        print(f"Instance {instance.id} created successfully.")
+        return instance.id
+
+    except NoCredentialsError as e:
+        print(f"Error: {e}")
+        return None
+
+def connect_ssh(public_ip, key_file_path):
+    # Connect to the EC2 instance using SSH
+    key = paramiko.RSAKey(filename=key_file_path)
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    try:
+        ssh_client.connect(public_ip, username='ec2-user', pkey=key)
+        print("SSH connection established.")
+        return ssh_client
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
+
+if __name__ == "__main__":
+    # Replace these values with your own
+    key_pair_name = 'your-key-pair-name'
+    security_group_id = 'your-security-group-id'
+    key_file_path = 'path/to/your/private-key.pem'
+
+    # Create EC2 instance
+    instance_id = create_ec2_instance(key_pair_name, security_group_id)
+
+    if instance_id:
+        # Wait for the instance to be running
+        ec2 = boto3.client('ec2')
+        waiter = ec2.get_waiter('instance_running')
+        waiter.wait(InstanceIds=[instance_id])
+
+        # Get public IP address
+        instance = ec2.describe_instances(InstanceIds=[instance_id])['Reservations'][0]['Instances'][0]
+        public_ip = instance['PublicIpAddress']
+
+        # Connect to the instance using SSH
+        ssh_client = connect_ssh(public_ip, key_file_path)
+
+        if ssh_client:
+            # Perform any additional setup or deployment steps here
+            print("Deployment successful.")
+
+            # Close the SSH connection
+            ssh_client.close()
